@@ -1,7 +1,3 @@
-"""
-Cấu hình cho Thanh Niên Crawler - Topic Classification
-"""
-
 # URL gốc của Thanh Niên
 BASE_URL = "https://thanhnien.vn"
 

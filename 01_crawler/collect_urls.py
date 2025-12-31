@@ -1,110 +1,47 @@
+#!/usr/bin/env python3
 """
-Script 1: Thu thập URLs từ RSS feeds và lưu vào SQLite
+Script to collect article URLs from RSS feeds and save to database.
 """
 
-import requests
-import sqlite3
-import xml.etree.ElementTree as ET
-from datetime import datetime
-import time
-import logging
-from tqdm import tqdm
-
-import config
-from utils import setup_logger
+import argparse
+from src import setup_logger, URLCollector, DatabaseManager
 
 
-class URLCollector:
-    """Thu thập URLs từ RSS feeds"""
+def main():
+    """Main function to collect URLs from RSS feeds."""
+    parser = argparse.ArgumentParser(description='Collect article URLs from RSS feeds')
+    parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
+    args = parser.parse_args()
     
-    def __init__(self):
-        self.logger = setup_logger()
-        self.db_file = config.DB_FILE
-        self.setup_database()
-        
-    def setup_database(self):
-        """Tạo database và bảng nếu chưa tồn tại"""
-        conn = sqlite3.connect(self.db_file)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS articles (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                url TEXT UNIQUE NOT NULL,
-                title TEXT,
-                category TEXT NOT NULL,
-                published_date TEXT,
-                description TEXT,
-                collected_at TEXT,
-                crawled INTEGER DEFAULT 0,
-                used_in_dataset INTEGER DEFAULT 0
-            )
-        ''')
-        
-        conn.commit()
-        conn.close()
-        self.logger.info(f"Database đã sẵn sàng: {self.db_file}")
+    # Setup logger
+    logger = setup_logger()
+    logger.info("Starting URL collection from RSS feeds...")
     
-    def parse_rss(self, rss_url, category):
-        """
-        Parse RSS feed và trích xuất thông tin bài viết
-        
-        Args:
-            rss_url: URL của RSS feed
-            category: Danh mục (thoisu, kinhte, congnghe)
-            
-        Returns:
-            List các dictionary chứa thông tin bài viết
-        """
-        try:
-            response = requests.get(rss_url, headers=config.HEADERS, timeout=config.TIMEOUT)
-            response.raise_for_status()
-            
-            # Parse XML
-            root = ET.fromstring(response.content)
-            
-            articles = []
-            
-            # Tìm tất cả các items trong channel
-            for item in root.findall('.//item'):
-                article = {
-                    'category': category,
-                    'collected_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                }
-                
-                # Title
-                title = item.find('title')
-                article['title'] = title.text if title is not None else ''
-                
-                # Link/URL
-                link = item.find('link')
-                article['url'] = link.text if link is not None else ''
-                
-                # Description
-                description = item.find('description')
-                article['description'] = description.text if description is not None else ''
-                
-                # Published date
-                pub_date = item.find('pubDate')
-                if pub_date is not None:
-                    # Parse RFC 2822 date format
-                    try:
-                        dt = datetime.strptime(pub_date.text, '%a, %d %b %Y %H:%M:%S %z')
-                        article['published_date'] = dt.strftime('%Y-%m-%d %H:%M:%S')
-                    except:
-                        article['published_date'] = pub_date.text
-                else:
-                    article['published_date'] = ''
-                
-                if article['url']:
-                    articles.append(article)
-            
-            self.logger.info(f"Đã parse {len(articles)} bài viết từ {category}")
-            return articles
-            
-        except Exception as e:
-            self.logger.error(f"Lỗi khi parse RSS {rss_url}: {e}")
-            return []
+    # Tạo collector và thu thập URLs
+    collector = URLCollector()
+    total_new = collector.collect_all()
+    
+    # Hiển thị thống kê
+    db = DatabaseManager()
+    stats = db.get_stats()
+    
+    print("\n" + "="*60)
+    print("Database Statistics:")
+    print("="*60)
+    print(f"Total articles: {stats['total']}")
+    print(f"\nBy category:")
+    for category, count in stats['by_category'].items():
+        print(f"  - {category}: {count}")
+    print(f"\nCrawled: {stats['crawled']}")
+    print(f"Uncrawled: {stats['uncrawled']}")
+    print("="*60)
+    
+    logger.info(f"Collection completed! {total_new} new URLs added to database.")
+
+
+if __name__ == "__main__":
+    main()
+
     
     def save_to_database(self, articles):
         """
